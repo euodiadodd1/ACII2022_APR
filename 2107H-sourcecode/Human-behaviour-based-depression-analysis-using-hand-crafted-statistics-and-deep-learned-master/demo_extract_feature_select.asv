@@ -1,0 +1,101 @@
+% Song, Siyang, Shashank Jaiswal, Linlin Shen, and Michel Valstar
+% Spectral Representation of Behaviour Primitives for Depression Analysis.
+% IEEE Transactions on Affective Computing (2020)
+% Email: siyang.song@nottingham.ac.uk
+
+clear all;clc
+
+%untar("training_dataset.tar.gz", "D:")
+%% setting
+% Choosing TOP-N frequency (N < fre_resolution/2)
+
+%file_name = 'example_data.mat';
+
+%% pre_processing
+
+mainDir = uigetdir; %gets directory
+subdirs = dir(mainDir);
+subdirs = subdirs(3:end); 
+for i = 1:length(subdirs)
+    folder = subdirs(i).folder;
+    myFiles = dir(fullfile(folder,subdirs(i).name,'*.csv')); %gets all wav files in struct
+    for k = 1:length(myFiles)
+        baseFileName = myFiles(k).name;
+        file_name = fullfile(folder, subdirs(i).name, baseFileName);
+        fprintf(1, 'Now reading %s\n', file_name);
+        
+        
+        r_data = readmatrix(file_name);
+
+        Primitive_num = size(r_data,2)-1;
+        Time_window = 10;
+        N = 10;
+        
+        t_length = N*Primitive_num; % set feature length for amp/phase map
+
+         % load data
+         % the number of behaviour signals
+        label_path = fullfile('D:\Training_dataset\Label\competence', subdirs(i).name);
+        if exist(label_path, 'dir')  
+            labels = readmatrix(fullfile('D:\Training_dataset\Label\competence', subdirs(i).name, baseFileName));
+            len_labels = size(labels,1);
+        else
+            len_labels = 2578;
+        end
+
+        fre_resolution = Time_window*floor(size(r_data,1)/len_labels); % sampling frequency
+        full_vector = zeros(len_labels, (size(r_data, 2)-1)*N*2+12*(size(r_data, 2)-1));
+        [r_data,num_keep_frame,num_multiple] = cut_videos(r_data',len_labels);
+        r_data = r_data';
+        disp(size(r_data, 1))
+        indx = 1;
+        for w = floor(fre_resolution/2)+1: floor(size(r_data,1)/len_labels) :size(r_data, 1)-floor(fre_resolution/2)
+            
+            start = w-floor(fre_resolution/2);
+            fin = w+floor(fre_resolution/2);
+            raw_data = r_data(start:fin,:);
+            
+            %raw_data = raw_data.example_data;
+            
+            raw_data(:,1) = [];
+            raw_data = raw_data';
+            
+            
+            [raw_data,num_keep_frame,num_multiple] = cut_videos(raw_data,fre_resolution); % cut videos
+            
+            processed_data = preprocess(raw_data); % substracting median values, ypu can customized your own preprocess method here
+            
+            
+            %% feature extraction
+            
+            sta_fea = getVideoFeature(processed_data); % compute statistics features
+            
+            [amp_map, phase_map] = fourier_transform_select(processed_data, N,num_multiple,fre_resolution);% 2-D amplitude map and phase map generation
+            
+            amp_flat_data = flat_data(amp_map,t_length, N);% 1-D amplitude feature generation
+            
+            phase_flat_data = flat_data(phase_map,t_length, N);% 1-D phase feature generation
+            
+            final_vector = [sta_fea,amp_flat_data,phase_flat_data];
+            disp(w)
+            full_vector(indx,:) = final_vector;
+            indx = indx+1;
+        end
+
+        path_bits = split(mainDir, '\');
+        path = fullfile("D:\transformed_data\", path_bits(3), path_bits(4), subdirs(i).name);
+        
+        if ~exist(path, 'dir')
+           mkdir(path)
+        end
+
+        %full_vector(1:Time_window/2,:) = [];
+        stopping = len_labels-floor(fre_resolution/2)+1;
+        full_vector(stopping:end, :) = [];
+        writematrix(full_vector, fullfile(path, baseFileName))
+       
+        %movefile (fullfile(path, baseFileName), fullfile("D:",path,baseFileName))
+        %csvwrite(fullfile(path, baseFileName),full_vector)
+    end
+end
+
